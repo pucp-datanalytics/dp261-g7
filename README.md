@@ -5,9 +5,13 @@
 | Nombre | Rol |
 |--------|-----|
 | Pedro Shiguihara | Product Owner (P.O) |
-| _Nombre Apellido_ | _Rol del miembro_ |
-| _Nombre Apellido_ | _Rol del miembro_ |
-| _Nombre Apellido_ | _Rol del miembro_ |
+| Carlos Bardales | Project Manager (P.M) |
+| Néstor Astecker | Business Analyst (B.A) |
+| Danthe Heredia | Data Engineer (D.E) |
+| Luis Ignacio | Data Analyst (D.A) |
+| Miguel López | Prototype Developer (P.D) |
+
+
 
 ## GitHub Project
 

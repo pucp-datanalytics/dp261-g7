@@ -1,0 +1,24 @@
+# Data
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.env
+venv/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb~
+
+# DVC
+.dvc/cache/
+.dvc/tmp/
+
+# IDE
+.vscode/
+.idea/
