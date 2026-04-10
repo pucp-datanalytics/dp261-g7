@@ -22,3 +22,4 @@ venv/
 # IDE
 .vscode/
 .idea/
+/10-employee_performance.csv
