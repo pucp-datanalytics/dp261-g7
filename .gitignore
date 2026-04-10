@@ -1,4 +1,5 @@
 # Data
+.ipynb_checkpoints
 data/raw/*
 data/raw/10-employee_performance.csv.dvc
 !data/raw/*.dvc
