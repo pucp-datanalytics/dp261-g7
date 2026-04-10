@@ -1,9 +1,12 @@
 # Data
 data/raw/*
-data/processed/*
+data/raw/10-employee_performance.csv.dvc
+!data/raw/*.dvc
+!data/raw/.gitignore
 !data/raw/.gitkeep
-!data/processed/.gitkeep
 
+data/processed/*
+!data/processed/.gitkeep
 # Python
 __pycache__/
 *.pyc
@@ -22,4 +25,3 @@ venv/
 # IDE
 .vscode/
 .idea/
-/10-employee_performance.csv
