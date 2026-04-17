@@ -1,9 +1,12 @@
 # Data
+.ipynb_checkpoints
 data/raw/*
-data/processed/*
+!data/raw/*.dvc
+!data/raw/.gitignore
 !data/raw/.gitkeep
-!data/processed/.gitkeep
 
+data/processed/*
+!data/processed/.gitkeep
 # Python
 __pycache__/
 *.pyc
