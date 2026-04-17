@@ -6,10 +6,10 @@
 |--------|-----|
 | Pedro Shiguihara | Product Owner (P.O) |
 | Carlos Bardales | Project Manager (P.M) |
-| Néstor Astecker | Business Analyst (B.A) |
-| Danthe Heredia | Data Engineer (D.E) |
-| Luis Ignacio | Data Analyst (D.A) |
-| Miguel López | Prototype Developer (P.D) |
+| Néstor Astecker | Business Analyst (B.A) / Class Balancer |
+| Danthe Heredia | Data Engineer (D.E) / Data Cleaner |
+| Luis Ignacio | Data Analyst (D.A) / Pipeline Builder |
+| Miguel López | Prototype Developer (P.D) / Feature Engineer |
 
 
 
