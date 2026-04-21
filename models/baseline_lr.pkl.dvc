@@ -1,0 +1,5 @@
+outs:
+- md5: e7b1e59c06c3432bf70f1f3f84b6acf5
+  size: 6330
+  hash: md5
+  path: baseline_lr.pkl
