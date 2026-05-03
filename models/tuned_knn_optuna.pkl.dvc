@@ -1,0 +1,5 @@
+outs:
+- md5: a5cf972657839a4aa398f873993199d3
+  size: 5284732
+  hash: md5
+  path: tuned_knn_optuna.pkl

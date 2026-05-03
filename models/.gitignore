@@ -4,3 +4,13 @@
 /baseline_lr.pkl
 /baseline_rf.pkl
 /baseline_svm.pkl
+/optuna_results.csv
+/tuned_knn.pkl
+/tuned_knn_optuna.pkl
+/tuned_lr.pkl
+/tuned_lr_optuna.pkl
+/tuned_rf.pkl
+/tuned_rf_optuna.pkl
+/tuned_svm.pkl
+/tuned_svm_optuna.pkl
+/tuning_comparison_baseline_vs_optuna.csv
