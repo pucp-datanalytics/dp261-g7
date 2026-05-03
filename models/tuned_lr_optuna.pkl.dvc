@@ -1,0 +1,5 @@
+outs:
+- md5: 071ce540a096b2ba1ba6f10123d4f1d2
+  size: 435490
+  hash: md5
+  path: tuned_lr_optuna.pkl

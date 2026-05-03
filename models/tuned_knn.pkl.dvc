@@ -1,0 +1,5 @@
+outs:
+- md5: 71666661cbd7de297e2ba28aee557a14
+  size: 5284732
+  hash: md5
+  path: tuned_knn.pkl

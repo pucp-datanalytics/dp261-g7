@@ -1,0 +1,5 @@
+outs:
+- md5: 2cd42cc7b2fae4231a09d33d0ebc2367
+  size: 1109255
+  hash: md5
+  path: tuned_rf_optuna.pkl

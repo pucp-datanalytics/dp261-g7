@@ -1,0 +1,5 @@
+outs:
+- md5: 41f2927affee1b060e847691ae5b63af
+  size: 5381682
+  hash: md5
+  path: tuned_svm_optuna.pkl
