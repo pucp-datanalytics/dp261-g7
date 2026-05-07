@@ -14,3 +14,4 @@
 /tuned_svm.pkl
 /tuned_svm_optuna.pkl
 /tuning_comparison_baseline_vs_optuna.csv
+/final_model.pkl
