@@ -48,8 +48,8 @@ st.markdown("Plataforma interactiva para evaluar el rendimiento del modelo y sim
 # ==========================================
 @st.cache_resource
 def load_model():
-    # Asumiendo que se ejecuta desde la raíz dp261-g7
-    model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'final_model.pkl')
+    # El modelo ahora está en la misma carpeta que app.py para facilitar el despliegue
+    model_path = os.path.join(os.path.dirname(__file__), 'final_model.pkl')
     return joblib.load(model_path)
 
 @st.cache_data
