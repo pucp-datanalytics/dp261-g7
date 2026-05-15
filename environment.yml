@@ -17,3 +17,5 @@ dependencies:
   - xgboost
   - lightgbm
   - optuna
+  - streamlit
+  - shap
