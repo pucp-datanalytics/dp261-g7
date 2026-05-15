@@ -78,12 +78,12 @@ col1, col2, col3 = st.columns(3)
 with col1:
     st.markdown("""<div class='kpi-card'>
         <div class='kpi-title'>F1 Score (Clase 1)</div>
-        <div class='kpi-value'>0.10</div>
+        <div class='kpi-value'>0.00</div>
         </div>""", unsafe_allow_html=True)
 with col2:
     st.markdown("""<div class='kpi-card'>
         <div class='kpi-title'>AUC-ROC</div>
-        <div class='kpi-value'>0.485</div>
+        <div class='kpi-value'>0.481</div>
         </div>""", unsafe_allow_html=True)
 with col3:
     st.markdown("""<div class='kpi-card'>
