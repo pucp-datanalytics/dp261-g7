@@ -19,3 +19,5 @@ dependencies:
   - optuna
   - streamlit
   - shap
+
+  - plotly

@@ -8,6 +8,9 @@ from sklearn.metrics import confusion_matrix, roc_curve, auc
 import streamlit.components.v1 as comps
 import os
 import numpy as np
+import plotly.express as px
+import plotly.figure_factory as ff
+import plotly.graph_objects as go
 
 # Configuración de Página
 st.set_page_config(page_title="Dashboard del Modelo Final", layout="wide")
@@ -72,7 +75,6 @@ except Exception as e:
 st.subheader("KPIs Principales")
 col1, col2, col3 = st.columns(3)
 
-# Podríamos extraer esto de experiments_log.csv, pero usamos valores representativos
 with col1:
     st.markdown("""<div class='kpi-card'>
         <div class='kpi-title'>F1 Score (Clase 1)</div>
@@ -140,13 +142,10 @@ if uploaded:
             st.write("SHAP permite entender la contribución de cada variable a la decisión final del modelo.")
             
             with st.spinner("Calculando valores SHAP... Esto puede tomar unos segundos."):
-                # Usamos KernelExplainer directamente sobre el pipeline completo para 
-                # interpretar las variables originales (sin transformar) y evitar problemas con SMOTE.
                 bg_sample = shap.sample(bg_data if bg_data is not None else X, 25)
                 
                 feature_names = X.columns.tolist()
                 
-                # Creamos una funcion wrapper que devuelve solo la proba de clase 1
                 # SHAP internamente pasa numpy arrays, por lo que debemos reconvertirlo a DataFrame
                 def predict_fn(x_array):
                     if not isinstance(x_array, pd.DataFrame):
@@ -189,32 +188,42 @@ if uploaded:
         
         with tab2:
             st.markdown("### Matriz de Confusión y Curva ROC")
-            st.info("Para visualizar estas métricas, el CSV subido debe contener la columna objetivo 'attrition'. Si no la tiene, no podemos comparar las predicciones con la realidad.")
+            st.info("Para visualizar estas métricas interactivas, el CSV subido debe contener la columna objetivo 'attrition'. Si no la tiene, no podemos comparar las predicciones con la realidad.")
             
             if y_true is not None:
                 col_m1, col_m2 = st.columns(2)
+                
                 with col_m1:
                     cm = confusion_matrix(y_true, preds)
-                    fig_cm, ax_cm = plt.subplots(figsize=(6,4))
-                    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax_cm)
-                    ax_cm.set_title("Matriz de Confusión")
-                    ax_cm.set_ylabel("Real")
-                    ax_cm.set_xlabel("Predicción")
-                    st.pyplot(fig_cm)
+                    # Convertimos la matriz en una lista bidimensional para Plotly FF
+                    z = cm.tolist()
+                    x_labels = ['Pred 0', 'Pred 1']
+                    y_labels = ['Real 0', 'Real 1']
+                    
+                    # Plotly Heatmap interactivo
+                    fig_cm = ff.create_annotated_heatmap(z, x=x_labels, y=y_labels, colorscale='Blues', showscale=True)
+                    fig_cm.update_layout(title_text='Matriz de Confusión (Interactiva)', xaxis_title='Predicción', yaxis_title='Real')
+                    # Aseguramos que el eje Y esté al revés para que coincida con la matriz típica
+                    fig_cm['layout']['yaxis']['autorange'] = "reversed"
+                    st.plotly_chart(fig_cm, use_container_width=True)
                     
                 with col_m2:
-                    fpr, tpr, _ = roc_curve(y_true, preds_proba)
+                    fpr, tpr, thresholds = roc_curve(y_true, preds_proba)
                     roc_auc = auc(fpr, tpr)
-                    fig_roc, ax_roc = plt.subplots(figsize=(6,4))
-                    ax_roc.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
-                    ax_roc.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-                    ax_roc.set_xlim([0.0, 1.0])
-                    ax_roc.set_ylim([0.0, 1.05])
-                    ax_roc.set_xlabel('False Positive Rate')
-                    ax_roc.set_ylabel('True Positive Rate')
-                    ax_roc.set_title('Receiver Operating Characteristic (ROC)')
-                    ax_roc.legend(loc="lower right")
-                    st.pyplot(fig_roc)
+                    
+                    # Plotly ROC interactivo
+                    fig_roc = go.Figure()
+                    fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, name=f'ROC curve (AUC = {roc_auc:.2f})',
+                                                 mode='lines', line=dict(color='darkorange', width=2),
+                                                 hovertemplate='FPR: %{x:.2f}<br>TPR: %{y:.2f}<br>Threshold: %{text:.2f}',
+                                                 text=thresholds))
+                    fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], name='Aleatorio',
+                                                 mode='lines', line=dict(color='navy', width=2, dash='dash')))
+                    fig_roc.update_layout(title='Receiver Operating Characteristic (ROC)',
+                                          xaxis_title='False Positive Rate', yaxis_title='True Positive Rate',
+                                          xaxis=dict(range=[0, 1], constrain='domain'),
+                                          yaxis=dict(range=[0, 1.05]), hovermode='x unified')
+                    st.plotly_chart(fig_roc, use_container_width=True)
             else:
                 st.warning("No se detectó la columna objetivo 'attrition' en el CSV subido.")
             
