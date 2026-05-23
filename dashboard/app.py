@@ -12,22 +12,21 @@ import plotly.graph_objects as go
 import requests
 from dotenv import load_dotenv
 
-# ==========================================
 # Variables de entorno
-# ==========================================
+
 load_dotenv("dashboard/.env")
 
-API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
-API_KEY = os.getenv("API_KEY", "demo123")
+API_URL = os.getenv("API_URL", "http://184.73.43.218:8000")
+API_KEY = os.getenv("API_KEY", "mi-api-key-secreta-123")
 
-# ==========================================
+
 # Configuración de Página
-# ==========================================
+
 st.set_page_config(page_title="Dashboard del Modelo Final", layout="wide")
 
-# ==========================================
+
 # Estilos CSS Personalizados
-# ==========================================
+
 st.markdown("""
 <style>
     .kpi-card {
@@ -57,9 +56,9 @@ st.markdown(
     "Plataforma interactiva integrada con una API REST para simular predicciones del modelo final."
 )
 
-# ==========================================
+
 # Carga de datos de fondo para SHAP
-# ==========================================
+
 @st.cache_data
 def load_background_data():
     data_path = os.path.join(os.path.dirname(__file__), "X_background.csv")
@@ -77,9 +76,9 @@ except Exception as e:
     st.error(f"Error cargando datos de fondo: {e}")
     st.stop()
 
-# ==========================================
+
 # Función para consumir API
-# ==========================================
+
 @st.cache_data(ttl=60)
 def predecir_api(payload: dict) -> dict:
     headers = {
@@ -97,9 +96,8 @@ def predecir_api(payload: dict) -> dict:
     return response.json()
 
 
-# ==========================================
 # Sección de KPIs
-# ==========================================
+
 st.subheader("KPIs Principales")
 col1, col2, col3 = st.columns(3)
 
