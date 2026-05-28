@@ -146,6 +146,12 @@ if uploaded:
     else:
         X = df.copy()
 
+    # Si no tiene employee_id, lo agregamos en df y X para que no falle la visualización ni la validación de la API
+    if "employee_id" not in df.columns:
+        df["employee_id"] = np.arange(1, len(df) + 1)
+    if "employee_id" not in X.columns:
+        X["employee_id"] = df["employee_id"]
+
     # Botón para gatillar la predicción
     if st.button("Ejecutar Predicciones"):
         try:

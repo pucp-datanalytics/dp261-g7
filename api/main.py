@@ -4,7 +4,7 @@ import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 
 # ==========================================
 # Carga de Variables de Entorno y Rutas
@@ -87,7 +87,7 @@ def verify_key(x_api_key: str = Header(None)):
 # Esquemas Pydantic (Modelos de Contratos)
 # ==========================================
 class Features(BaseModel):
-    employee_id: int = Field(..., description="ID único del empleado", example=13981)
+    employee_id: Optional[int] = Field(None, description="ID único del empleado", example=13981)
     age: float = Field(..., description="Edad del empleado", example=51.0)
     gender: str = Field(..., description="Género (Male/Female)", example="Male")
     education: str = Field(..., description="Nivel educativo (Bachelor/Master/PhD/High School)", example="Master")
@@ -125,17 +125,20 @@ def preprocess_input(df_input: pd.DataFrame) -> pd.DataFrame:
     df_res = df_input.copy()
     
     # 1. Ratio Salario / Edad
-    df_res["ratio_salario_edad"] = df_res["monthly_salary"] / df_res["age"]
+    if "ratio_salario_edad" not in df_res.columns:
+        df_res["ratio_salario_edad"] = df_res["monthly_salary"] / df_res["age"]
     
     # 2. Antigüedad x Satisfacción
-    df_res["antiguedad_satisfaccion"] = df_res["years_at_company"] * df_res["job_satisfaction"]
+    if "antiguedad_satisfaccion" not in df_res.columns:
+        df_res["antiguedad_satisfaccion"] = df_res["years_at_company"] * df_res["job_satisfaction"]
     
     # 3. Rango Edad
-    df_res["rango_edad"] = pd.cut(
-        df_res["age"],
-        bins=[0, 30, 45, 60, 100],
-        labels=["joven", "adulto", "maduro", "senior"]
-    ).astype(str)
+    if "rango_edad" not in df_res.columns:
+        df_res["rango_edad"] = pd.cut(
+            df_res["age"],
+            bins=[0, 30, 45, 60, 100],
+            labels=["joven", "adulto", "maduro", "senior"]
+        ).astype(str)
     
     # 4. Drop employee_id
     if "employee_id" in df_res.columns:
@@ -182,8 +185,9 @@ def predict(x: Features, current_model = Depends(get_model)):
         
         label = 1 if proba >= 0.35 else 0
         
+        emp_id = x.employee_id if x.employee_id is not None else 99999
         return PredictResponse(
-            employee_id=x.employee_id,
+            employee_id=emp_id,
             proba=float(proba),
             label=label,
             api_version=API_VERSION,
@@ -205,8 +209,13 @@ def predict_bulk(x: BulkFeatures, current_model = Depends(get_model)):
         data_list = [emp.dict() for emp in x.employees]
         df_input = pd.DataFrame(data_list)
         
-        # Guardar IDs antes de quitarlos
-        employee_ids = df_input["employee_id"].tolist()
+        # Guardar IDs antes de quitarlos, generar IDs secuenciales si faltan
+        employee_ids = []
+        for i, emp in enumerate(x.employees):
+            if emp.employee_id is not None:
+                employee_ids.append(emp.employee_id)
+            else:
+                employee_ids.append(i + 1)
         
         # Preprocesar entrada
         df_processed = preprocess_input(df_input)
