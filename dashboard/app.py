@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix, roc_curve, auc
@@ -13,20 +12,15 @@ import requests
 from dotenv import load_dotenv
 
 # Variables de entorno
-
 load_dotenv("dashboard/.env")
 
-API_URL = os.getenv("API_URL", "http://184.73.43.218:8000")
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 API_KEY = os.getenv("API_KEY", "mi-api-key-secreta-123")
 
-
 # Configuración de Página
-
-st.set_page_config(page_title="Dashboard del Modelo Final", layout="wide")
-
+st.set_page_config(page_title="Dashboard de Gestión de Atrición", layout="wide")
 
 # Estilos CSS Personalizados
-
 st.markdown("""
 <style>
     .kpi-card {
@@ -39,7 +33,7 @@ st.markdown("""
     .kpi-value {
         font-size: 2.5rem;
         font-weight: bold;
-        color: #4CAF50;
+        color: #FF4B4B;
     }
     .kpi-title {
         font-size: 1.2rem;
@@ -51,14 +45,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("Dashboard del Modelo Final")
+st.title("Dashboard de Predicción de Deserción Laboral (Attrition)")
 st.markdown(
-    "Plataforma interactiva integrada con una API REST para simular predicciones del modelo final."
+    "Plataforma interactiva para la predicción masiva de fuga de talento mediante consumo de la API REST."
 )
 
-
-# Carga de datos de fondo para SHAP
-
+# Carga de datos de fondo
 @st.cache_data
 def load_background_data():
     data_path = os.path.join(os.path.dirname(__file__), "X_background.csv")
@@ -69,54 +61,47 @@ def load_background_data():
         return df_bg
     return None
 
-
 try:
     bg_data = load_background_data()
 except Exception as e:
     st.error(f"Error cargando datos de fondo: {e}")
     st.stop()
 
-
-# Función para consumir API
-
-@st.cache_data(ttl=60)
-def predecir_api(payload: dict) -> dict:
+# Función para consumir API en Bulk
+def predecir_api_bulk(employees_list: list) -> list:
     headers = {
         "x-api-key": API_KEY
     }
-
+    payload = {"employees": employees_list}
     response = requests.post(
-        f"{API_URL}/predict",
+        f"{API_URL}/predict_bulk",
         json=payload,
         headers=headers,
-        timeout=5
+        timeout=30
     )
-
     response.raise_for_status()
-    return response.json()
-
+    return response.json().get("predictions", [])
 
 # Sección de KPIs
-
-st.subheader("KPIs Principales")
+st.subheader("KPIs del Modelo (Ensembles Stacking)")
 col1, col2, col3 = st.columns(3)
 
 with col1:
     st.markdown("""<div class='kpi-card'>
-        <div class='kpi-title'>F1 Score (Clase 1)</div>
-        <div class='kpi-value'>0.10</div>
+        <div class='kpi-title'>Umbral Óptimo de Decisión</div>
+        <div class='kpi-value' style='color:#FFC107;'>0.35</div>
         </div>""", unsafe_allow_html=True)
 
 with col2:
     st.markdown("""<div class='kpi-card'>
-        <div class='kpi-title'>AUC-ROC</div>
-        <div class='kpi-value'>0.485</div>
+        <div class='kpi-title'>AUC-ROC (Stacking)</div>
+        <div class='kpi-value' style='color:#4CAF50;'>~0.52</div>
         </div>""", unsafe_allow_html=True)
 
 with col3:
     st.markdown("""<div class='kpi-card'>
-        <div class='kpi-title'>Modelo</div>
-        <div class='kpi-value' style='color:#2196F3; font-size: 2rem;'>API REST</div>
+        <div class='kpi-title'>Arquitectura del Meta-Modelo</div>
+        <div class='kpi-value' style='color:#2196F3; font-size: 2rem;'>Stacking Classifier</div>
         </div>""", unsafe_allow_html=True)
 
 st.divider()
@@ -124,26 +109,24 @@ st.divider()
 # ==========================================
 # Estado de la API
 # ==========================================
-st.subheader("Estado de la API")
+st.subheader("Estado de la API REST")
 
 try:
     health_response = requests.get(f"{API_URL}/health", timeout=5)
-
     if health_response.status_code == 200:
-        st.success("API conectada correctamente.")
+        st.success(f"API conectada correctamente en {API_URL}.")
     else:
         st.warning(f"La API respondió con código {health_response.status_code}")
-
 except Exception as e:
-    st.error(f"No se pudo conectar con la API: {e}")
+    st.error(f"No se pudo conectar con la API REST en {API_URL}: {e}. Asegúrate de que el backend FastAPI esté ejecutándose.")
 
 st.divider()
 
 # ==========================================
 # Simulador de Predicciones
 # ==========================================
-st.subheader("Simulador de Predicciones")
-st.markdown("Sube un archivo CSV con nuevos datos para predecir mediante la API.")
+st.subheader("Simulador de Predicciones Masivas")
+st.markdown("Sube un archivo CSV con nuevos datos para predecir mediante la API REST usando el endpoint de predicción masiva `/predict_bulk`.")
 
 uploaded = st.file_uploader("Sube un CSV", type="csv")
 
@@ -153,7 +136,7 @@ if uploaded:
     st.write("**Datos cargados (Primeras 5 filas):**")
     st.dataframe(df.head(5))
 
-    # Separar la variable objetivo si existe
+    # Identificar columna target
     target_col = "attrition"
     y_true = None
 
@@ -163,171 +146,151 @@ if uploaded:
     else:
         X = df.copy()
 
-    try:
-        preds = []
-        preds_proba = []
-        status_list = []
+    # Si no tiene employee_id, lo agregamos en df y X para que no falle la visualización ni la validación de la API
+    if "employee_id" not in df.columns:
+        df["employee_id"] = np.arange(1, len(df) + 1)
+    if "employee_id" not in X.columns:
+        X["employee_id"] = df["employee_id"]
 
-        progress = st.progress(0)
+    # Botón para gatillar la predicción
+    if st.button("Ejecutar Predicciones"):
+        try:
+            with st.spinner("Enviando datos al backend para predicción masiva..."):
+                # Convertir dataframe a lista de registros
+                employees_list = X.to_dict(orient="records")
+                
+                # Consumir API Bulk
+                results = predecir_api_bulk(employees_list)
+                
+                # Extraer predicciones
+                preds = [res.get("label") for res in results]
+                preds_proba = [res.get("proba") for res in results]
+                status_list = ["ok"] * len(results)
 
-        for i, (_, row) in enumerate(X.iterrows()):
-            payload = row.to_dict()
+                df_result = df.copy()
+                df_result["Predicción"] = preds
+                df_result["Probabilidad"] = preds_proba
+                df_result["Estado_API"] = status_list
 
-            try:
-                result = predecir_api(payload)
+            st.success("Predicciones procesadas con éxito por la API REST.")
+            st.dataframe(df_result[["employee_id", "Predicción", "Probabilidad", "Estado_API"]].head(20))
 
-                preds.append(result.get("label"))
-                preds_proba.append(result.get("proba"))
-                status_list.append("ok")
+            csv_result = df_result.to_csv(index=False).encode("utf-8")
 
-            except requests.exceptions.Timeout:
-                preds.append(None)
-                preds_proba.append(None)
-                status_list.append("timeout")
-
-            except requests.exceptions.HTTPError as e:
-                preds.append(None)
-                preds_proba.append(None)
-                status_list.append(f"http_error_{e.response.status_code}")
-
-            except Exception as e:
-                preds.append(None)
-                preds_proba.append(None)
-                status_list.append(f"error: {str(e)}")
-
-            progress.progress((i + 1) / len(X))
-
-        df_result = df.copy()
-        df_result["Predicción"] = preds
-        df_result["Probabilidad"] = preds_proba
-        df_result["Estado_API"] = status_list
-
-        st.success("Predicciones calculadas con éxito mediante la API.")
-        st.dataframe(df_result[["Predicción", "Probabilidad", "Estado_API"]].head(20))
-
-        csv_result = df_result.to_csv(index=False).encode("utf-8")
-
-        st.download_button(
-            label="Descargar predicciones",
-            data=csv_result,
-            file_name="predicciones_api.csv",
-            mime="text/csv"
-        )
-
-        # ==========================================
-        # Visualizaciones
-        # ==========================================
-        st.divider()
-        st.subheader("Rendimiento")
-
-        tab1, tab2 = st.tabs([
-            "Integración API",
-            "Métricas Globales (Si hay Target)"
-        ])
-
-        with tab1:
-            st.markdown("### Validación de integración")
-            st.write("""
-            El dashboard ya no carga el modelo localmente. 
-            Cada fila del CSV se envía al endpoint `/predict` de la API REST.
-            """)
-
-            st.write("Resumen de estados de la API:")
-            st.dataframe(df_result["Estado_API"].value_counts().reset_index().rename(
-                columns={
-                    "index": "Estado",
-                    "Estado_API": "Cantidad"
-                }
-            ))
-
-            st.write("Distribución de predicciones:")
-            st.dataframe(df_result["Predicción"].value_counts(dropna=False).reset_index().rename(
-                columns={
-                    "index": "Predicción",
-                    "Predicción": "Cantidad"
-                }
-            ))
-
-        with tab2:
-            st.markdown("### Matriz de Confusión y Curva ROC")
-            st.info(
-                "Para visualizar estas métricas, el CSV subido debe contener la columna objetivo 'attrition'."
+            st.download_button(
+                label="Descargar CSV de Resultados",
+                data=csv_result,
+                file_name="predicciones_atricion_final.csv",
+                mime="text/csv"
             )
 
-            if y_true is not None:
-                # Filtrar filas con predicción válida
-                valid_mask = df_result["Predicción"].notna()
+            # ==========================================
+            # Visualizaciones
+            # ==========================================
+            st.divider()
+            st.subheader("Análisis de Resultados de Predicción")
 
-                y_true_valid = y_true[valid_mask]
-                preds_valid = pd.Series(preds)[valid_mask].astype(int)
-                preds_proba_valid = pd.Series(preds_proba)[valid_mask].astype(float)
+            tab1, tab2 = st.tabs([
+                "Distribución de Predicciones",
+                "Evaluación contra Target (Si está disponible)"
+            ])
 
-                col_m1, col_m2 = st.columns(2)
-
-                with col_m1:
-                    cm = confusion_matrix(y_true_valid, preds_valid)
-                    z = cm.tolist()
-                    x_labels = ["Pred 0", "Pred 1"]
-                    y_labels = ["Real 0", "Real 1"]
-
-                    fig_cm = ff.create_annotated_heatmap(
-                        z,
-                        x=x_labels,
-                        y=y_labels,
-                        colorscale="Blues",
-                        showscale=True
-                    )
-
-                    fig_cm.update_layout(
-                        title_text="Matriz de Confusión (Interactiva)",
-                        xaxis_title="Predicción",
-                        yaxis_title="Real"
-                    )
-
-                    fig_cm["layout"]["yaxis"]["autorange"] = "reversed"
-
-                    st.plotly_chart(fig_cm, use_container_width=True)
-
-                with col_m2:
-                    fpr, tpr, thresholds = roc_curve(y_true_valid, preds_proba_valid)
-                    roc_auc = auc(fpr, tpr)
-
-                    fig_roc = go.Figure()
-
-                    fig_roc.add_trace(go.Scatter(
-                        x=fpr,
-                        y=tpr,
-                        name=f"ROC curve (AUC = {roc_auc:.2f})",
-                        mode="lines",
-                        line=dict(color="darkorange", width=2),
-                        hovertemplate="FPR: %{x:.2f}<br>TPR: %{y:.2f}<br>Threshold: %{text:.2f}",
-                        text=thresholds
+            with tab1:
+                col_chart1, col_chart2 = st.columns(2)
+                
+                with col_chart1:
+                    fig_dist = go.Figure()
+                    fig_dist.add_trace(go.Histogram(
+                        x=df_result["Probabilidad"],
+                        nbinsx=20,
+                        marker_color='#FF4B4B',
+                        opacity=0.75
                     ))
-
-                    fig_roc.add_trace(go.Scatter(
-                        x=[0, 1],
-                        y=[0, 1],
-                        name="Aleatorio",
-                        mode="lines",
-                        line=dict(color="navy", width=2, dash="dash")
-                    ))
-
-                    fig_roc.update_layout(
-                        title="Receiver Operating Characteristic (ROC)",
-                        xaxis_title="False Positive Rate",
-                        yaxis_title="True Positive Rate",
-                        xaxis=dict(range=[0, 1], constrain="domain"),
-                        yaxis=dict(range=[0, 1.05]),
-                        hovermode="x unified"
+                    fig_dist.update_layout(
+                        title="Distribución de Probabilidad de Fuga",
+                        xaxis_title="Probabilidad de Atrición",
+                        yaxis_title="Cantidad de Empleados",
+                        bargap=0.05
                     )
+                    st.plotly_chart(fig_dist, use_container_width=True)
+                    
+                with col_chart2:
+                    pred_counts = pd.Series(preds).value_counts()
+                    fig_pie = go.Figure(data=[go.Pie(
+                        labels=["Permanencia (0)", "Riesgo de Fuga (1)"],
+                        values=[pred_counts.get(0, 0), pred_counts.get(1, 0)],
+                        hole=.4,
+                        marker_colors=['#4CAF50', '#FF4B4B']
+                    )])
+                    fig_pie.update_layout(title="Proporción de Empleados Predichos en Riesgo")
+                    st.plotly_chart(fig_pie, use_container_width=True)
 
-                    st.plotly_chart(fig_roc, use_container_width=True)
+            with tab2:
+                if y_true is not None:
+                    col_m1, col_m2 = st.columns(2)
 
-            else:
-                st.warning("No se detectó la columna objetivo 'attrition' en el CSV subido.")
+                    with col_m1:
+                        cm = confusion_matrix(y_true, preds)
+                        z = cm.tolist()
+                        x_labels = ["Pred 0 (No Fuga)", "Pred 1 (Fuga)"]
+                        y_labels = ["Real 0 (No Fuga)", "Real 1 (Fuga)"]
 
-    except Exception as e:
-        st.error(f"Error durante la predicción: {e}")
+                        fig_cm = ff.create_annotated_heatmap(
+                            z,
+                            x=x_labels,
+                            y=y_labels,
+                            colorscale="Reds",
+                            showscale=True
+                        )
+
+                        fig_cm.update_layout(
+                            title_text="Matriz de Confusión",
+                            xaxis_title="Predicción",
+                            yaxis_title="Valor Real"
+                        )
+
+                        fig_cm["layout"]["yaxis"]["autorange"] = "reversed"
+                        st.plotly_chart(fig_cm, use_container_width=True)
+
+                    with col_m2:
+                        fpr, tpr, thresholds = roc_curve(y_true, preds_proba)
+                        roc_auc = auc(fpr, tpr)
+
+                        fig_roc = go.Figure()
+
+                        fig_roc.add_trace(go.Scatter(
+                            x=fpr,
+                            y=tpr,
+                            name=f"ROC curve (AUC = {roc_auc:.4f})",
+                            mode="lines",
+                            line=dict(color="#FF4B4B", width=3),
+                            hovertemplate="FPR: %{x:.2f}<br>TPR: %{y:.2f}<br>Threshold: %{text:.2f}",
+                            text=thresholds
+                        ))
+
+                        fig_roc.add_trace(go.Scatter(
+                            x=[0, 1],
+                            y=[0, 1],
+                            name="Aleatorio (AUC = 0.5)",
+                            mode="lines",
+                            line=dict(color="gray", width=2, dash="dash")
+                        ))
+
+                        fig_roc.update_layout(
+                            title="Curva ROC de Validación",
+                            xaxis_title="Tasa de Falsos Positivos (FPR)",
+                            yaxis_title="Tasa de Verdaderos Positivos (TPR)",
+                            xaxis=dict(range=[0, 1]),
+                            yaxis=dict(range=[0, 1.05]),
+                            hovermode="x unified"
+                        )
+
+                        st.plotly_chart(fig_roc, use_container_width=True)
+                else:
+                    st.warning("La columna objetivo 'attrition' no está presente en el archivo CSV subido para calcular la matriz de confusión y la curva ROC.")
+
+        except Exception as e:
+            st.error(f"Error procesando las predicciones masivas de la API: {e}")
 
 else:
-    st.info("Por favor, sube un archivo CSV para generar predicciones.")
+    st.info("Por favor, sube un archivo CSV estructurado con las características del empleado para iniciar.")
