@@ -1,244 +1,413 @@
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.metrics import confusion_matrix, roc_curve, auc
-import streamlit.components.v1 as comps
 import os
-import numpy as np
-import plotly.figure_factory as ff
-import plotly.graph_objects as go
+import time
 import requests
-from dotenv import load_dotenv
+import numpy as np
+import pandas as pd
+import streamlit as st
+import plotly.graph_objects as go
+import plotly.figure_factory as ff
 
-# Variables de entorno
+from dotenv import load_dotenv
+from sklearn.metrics import confusion_matrix, roc_curve, auc
+
+
+# ======================================================
+# Configuración
+# ======================================================
 load_dotenv("dashboard/.env")
 
-API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_URL = os.getenv("API_URL", "http://184.73.43.218:8000").rstrip("/")
 API_KEY = os.getenv("API_KEY", "mi-api-key-secreta-123")
 
-# Configuración de Página
-st.set_page_config(page_title="Dashboard de Gestión de Atrición", layout="wide")
+HEADERS = {
+    "X-API-Key": API_KEY,
+    "Content-Type": "application/json"
+}
 
-# Estilos CSS Personalizados
+BUSINESS_THRESHOLD = 0.35
+GAUGE_MIN = -200
+GAUGE_MAX = 150
+
+
+st.set_page_config(
+    page_title="Dashboard de Gestión de Attrition",
+    layout="wide"
+)
+
+
+# ======================================================
+# Estilos
+# ======================================================
 st.markdown("""
 <style>
-    .kpi-card {
-        background-color: #1E1E1E;
-        padding: 20px;
-        border-radius: 10px;
-        text-align: center;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.5);
-    }
-    .kpi-value {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #FF4B4B;
-    }
-    .kpi-title {
-        font-size: 1.2rem;
-        color: #FFFFFF;
-    }
-    [data-testid="stStatusWidget"] {
-        visibility: hidden;
-    }
+.kpi-card {
+    background-color: #1E1E1E;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.5);
+}
+.kpi-title {
+    font-size: 1.05rem;
+    color: #FFFFFF;
+}
+.kpi-value {
+    font-size: 2.3rem;
+    font-weight: bold;
+}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("Dashboard de Predicción de Deserción Laboral (Attrition)")
-st.markdown(
-    "Plataforma interactiva para la predicción masiva de fuga de talento mediante consumo de la API REST."
-)
 
-# Carga de datos de fondo
-@st.cache_data
-def load_background_data():
-    data_path = os.path.join(os.path.dirname(__file__), "X_background.csv")
-    if os.path.exists(data_path):
-        df_bg = pd.read_csv(data_path)
-        if "attrition" in df_bg.columns:
-            df_bg = df_bg.drop(columns=["attrition"])
-        return df_bg
-    return None
+# ======================================================
+# Funciones API
+# ======================================================
+@st.cache_data(ttl=60)
+def check_health(api_url: str):
+    try:
+        r = requests.get(f"{api_url}/health", timeout=5)
+        return r.status_code, r.text
+    except Exception as e:
+        return None, str(e)
 
-try:
-    bg_data = load_background_data()
-except Exception as e:
-    st.error(f"Error cargando datos de fondo: {e}")
-    st.stop()
 
-# Función para consumir API en Bulk
-def predecir_api_bulk(employees_list: list) -> list:
-    headers = {
-        "x-api-key": API_KEY
-    }
-    payload = {"employees": employees_list}
+def predecir_api(payload: dict) -> dict:
     response = requests.post(
-        f"{API_URL}/predict_bulk",
+        f"{API_URL}/predict",
         json=payload,
-        headers=headers,
-        timeout=30
+        headers=HEADERS,
+        timeout=10
     )
     response.raise_for_status()
-    return response.json().get("predictions", [])
+    return response.json()
 
-# Sección de KPIs
-st.subheader("KPIs del Modelo (Ensembles Stacking)")
+
+def limpiar_payload(row: dict) -> dict:
+    payload = {}
+
+    for k, v in row.items():
+        if pd.isna(v):
+            payload[k] = None
+        elif isinstance(v, (np.integer,)):
+            payload[k] = int(v)
+        elif isinstance(v, (np.floating,)):
+            payload[k] = float(v)
+        else:
+            payload[k] = v
+
+    return payload
+
+
+# ======================================================
+# Business Value local para velocímetro
+# ======================================================
+def calcular_business_value(proba: float):
+    benefit_tp = 150
+    cost_fp = -20
+    cost_fn = -200
+    benefit_tn = 0
+
+    expected_if_intervene = proba * benefit_tp + (1 - proba) * cost_fp
+    expected_if_not = proba * cost_fn + (1 - proba) * benefit_tn
+
+    if proba >= BUSINESS_THRESHOLD:
+        action = "Intervenir"
+        value = expected_if_intervene
+    else:
+        action = "No intervenir"
+        value = expected_if_not
+
+    return value, action, expected_if_intervene, expected_if_not
+
+
+def crear_velocimetro(value, vmin=GAUGE_MIN, vmax=GAUGE_MAX, title="Business Value Esperado"):
+    value = max(min(value, vmax), vmin)
+
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=value,
+        number={"prefix": "USD ", "font": {"size": 34}},
+        title={"text": title, "font": {"size": 18}},
+        gauge={
+            "axis": {"range": [vmin, vmax]},
+            "bar": {"color": "black"},
+            "steps": [
+                {"range": [vmin, vmin + (vmax - vmin) * 0.4], "color": "#e74c3c"},
+                {"range": [vmin + (vmax - vmin) * 0.4, vmin + (vmax - vmin) * 0.7], "color": "#f1c40f"},
+                {"range": [vmin + (vmax - vmin) * 0.7, vmax], "color": "#2ecc71"},
+            ],
+            "threshold": {
+                "line": {"color": "white", "width": 4},
+                "thickness": 0.75,
+                "value": value
+            }
+        }
+    ))
+
+    fig.update_layout(
+        height=320,
+        margin=dict(l=30, r=30, t=60, b=20)
+    )
+
+    return fig
+
+
+# ======================================================
+# Header
+# ======================================================
+st.title("Dashboard de Predicción de Deserción Laboral")
+st.markdown("Dashboard integrado con API REST desplegada en AWS para simular predicciones de attrition.")
+
+
+# ======================================================
+# KPIs superiores
+# ======================================================
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.markdown("""<div class='kpi-card'>
-        <div class='kpi-title'>Umbral Óptimo de Decisión</div>
-        <div class='kpi-value' style='color:#FFC107;'>0.35</div>
-        </div>""", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class='kpi-card'>
+        <div class='kpi-title'>Umbral de Decisión</div>
+        <div class='kpi-value' style='color:#FFC107;'>{BUSINESS_THRESHOLD:.2f}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col2:
-    st.markdown("""<div class='kpi-card'>
-        <div class='kpi-title'>AUC-ROC (Stacking)</div>
-        <div class='kpi-value' style='color:#4CAF50;'>~0.52</div>
-        </div>""", unsafe_allow_html=True)
+    st.markdown("""
+    <div class='kpi-card'>
+        <div class='kpi-title'>Endpoint API</div>
+        <div class='kpi-value' style='color:#4CAF50; font-size:1.5rem;'>/predict</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 with col3:
-    st.markdown("""<div class='kpi-card'>
-        <div class='kpi-title'>Arquitectura del Meta-Modelo</div>
-        <div class='kpi-value' style='color:#2196F3; font-size: 2rem;'>Stacking Classifier</div>
-        </div>""", unsafe_allow_html=True)
+    st.markdown("""
+    <div class='kpi-card'>
+        <div class='kpi-title'>Modo de Predicción</div>
+        <div class='kpi-value' style='color:#2196F3; font-size:1.5rem;'>Fila por fila</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.divider()
 
-# ==========================================
-# Estado de la API
-# ==========================================
+
+# ======================================================
+# Estado API
+# ======================================================
 st.subheader("Estado de la API REST")
 
-try:
-    health_response = requests.get(f"{API_URL}/health", timeout=5)
-    if health_response.status_code == 200:
-        st.success(f"API conectada correctamente en {API_URL}.")
-    else:
-        st.warning(f"La API respondió con código {health_response.status_code}")
-except Exception as e:
-    st.error(f"No se pudo conectar con la API REST en {API_URL}: {e}. Asegúrate de que el backend FastAPI esté ejecutándose.")
+status_code, health_msg = check_health(API_URL)
+
+if status_code == 200:
+    st.success(f"API conectada correctamente en {API_URL}")
+else:
+    st.error(f"No se pudo conectar correctamente con la API. Detalle: {health_msg}")
 
 st.divider()
 
-# ==========================================
-# Simulador de Predicciones
-# ==========================================
-st.subheader("Simulador de Predicciones Masivas")
-st.markdown("Sube un archivo CSV con nuevos datos para predecir mediante la API REST usando el endpoint de predicción masiva `/predict_bulk`.")
+
+# ======================================================
+# Simulador
+# ======================================================
+st.subheader("Simulador de Predicciones")
 
 uploaded = st.file_uploader("Sube un CSV", type="csv")
 
 if uploaded:
     df = pd.read_csv(uploaded)
 
-    st.write("**Datos cargados (Primeras 5 filas):**")
+    st.write("**Datos cargados:**")
     st.dataframe(df.head(5))
 
-    # Identificar columna target
     target_col = "attrition"
-    y_true = None
 
     if target_col in df.columns:
-        y_true = df[target_col]
-        X = df.drop(columns=[target_col])
+        y_true = df[target_col].copy()
+        X = df.drop(columns=[target_col]).copy()
     else:
+        y_true = None
         X = df.copy()
 
-    # Si no tiene employee_id, lo agregamos en df y X para que no falle la visualización ni la validación de la API
-    if "employee_id" not in df.columns:
-        df["employee_id"] = np.arange(1, len(df) + 1)
     if "employee_id" not in X.columns:
-        X["employee_id"] = df["employee_id"]
+        X["employee_id"] = np.arange(1, len(X) + 1)
 
-    # Botón para gatillar la predicción
     if st.button("Ejecutar Predicciones"):
-        try:
-            with st.spinner("Enviando datos al backend para predicción masiva..."):
-                # Convertir dataframe a lista de registros
-                employees_list = X.to_dict(orient="records")
-                
-                # Consumir API Bulk
-                results = predecir_api_bulk(employees_list)
-                
-                # Extraer predicciones
-                preds = [res.get("label") for res in results]
-                preds_proba = [res.get("proba") for res in results]
-                status_list = ["ok"] * len(results)
+        results = []
+        errores = []
 
-                df_result = df.copy()
-                df_result["Predicción"] = preds
-                df_result["Probabilidad"] = preds_proba
-                df_result["Estado_API"] = status_list
+        progress = st.progress(0)
+        status_text = st.empty()
 
-            st.success("Predicciones procesadas con éxito por la API REST.")
-            st.dataframe(df_result[["employee_id", "Predicción", "Probabilidad", "Estado_API"]].head(20))
+        start = time.time()
+
+        for i, row in X.iterrows():
+            try:
+                payload = limpiar_payload(row.to_dict())
+                res = predecir_api(payload)
+                results.append(res)
+            except Exception as e:
+                errores.append({
+                    "fila": i,
+                    "error": str(e)
+                })
+
+            progress.progress((i + 1) / len(X))
+            status_text.text(f"Procesando {i + 1} de {len(X)} registros...")
+
+        elapsed = time.time() - start
+
+        if errores:
+            st.error(f"Se encontraron {len(errores)} errores durante la predicción.")
+            st.dataframe(pd.DataFrame(errores).head(20))
+
+        if results:
+            df_result = df.copy()
+
+            df_result["Predicción"] = [r.get("label") for r in results]
+            df_result["Probabilidad"] = [r.get("proba") for r in results]
+
+            df_result["Business_Value"] = [
+                r.get("expected_business_value", calcular_business_value(r.get("proba", 0))[0])
+                for r in results
+            ]
+
+            df_result["Acción_Recomendada"] = [
+                r.get("action_recommended", calcular_business_value(r.get("proba", 0))[1])
+                for r in results
+            ]
+
+            st.success(f"Predicciones procesadas correctamente en {elapsed:.2f} segundos.")
+
+            st.dataframe(
+                df_result[
+                    ["employee_id", "Predicción", "Probabilidad", "Acción_Recomendada", "Business_Value"]
+                ].head(30)
+            )
 
             csv_result = df_result.to_csv(index=False).encode("utf-8")
 
             st.download_button(
-                label="Descargar CSV de Resultados",
+                label="Descargar CSV de resultados",
                 data=csv_result,
-                file_name="predicciones_atricion_final.csv",
+                file_name="predicciones_attrition_api.csv",
                 mime="text/csv"
             )
 
-            # ==========================================
-            # Visualizaciones
-            # ==========================================
             st.divider()
-            st.subheader("Análisis de Resultados de Predicción")
+            st.subheader("Resumen de Resultados")
 
-            tab1, tab2 = st.tabs([
-                "Distribución de Predicciones",
-                "Evaluación contra Target (Si está disponible)"
+            total = len(df_result)
+            riesgo = int(df_result["Predicción"].sum())
+            pct_riesgo = riesgo / total if total > 0 else 0
+            avg_proba = df_result["Probabilidad"].mean()
+            total_value = df_result["Business_Value"].sum()
+            avg_value = df_result["Business_Value"].mean()
+
+            k1, k2, k3, k4 = st.columns(4)
+
+            k1.metric("Registros procesados", f"{total:,}")
+            k2.metric("Empleados en riesgo", f"{riesgo:,}", f"{pct_riesgo:.1%}")
+            k3.metric("Probabilidad promedio", f"{avg_proba:.3f}")
+            k4.metric("Business Value total", f"USD {total_value:,.0f}")
+
+            st.divider()
+
+            tab1, tab2, tab3, tab4 = st.tabs([
+                "Distribución",
+                "Business Value",
+                "Velocímetro",
+                "Evaluación"
             ])
 
             with tab1:
-                col_chart1, col_chart2 = st.columns(2)
-                
-                with col_chart1:
-                    fig_dist = go.Figure()
-                    fig_dist.add_trace(go.Histogram(
+                c1, c2 = st.columns(2)
+
+                with c1:
+                    fig_hist = go.Figure()
+                    fig_hist.add_trace(go.Histogram(
                         x=df_result["Probabilidad"],
-                        nbinsx=20,
-                        marker_color='#FF4B4B',
-                        opacity=0.75
+                        nbinsx=20
                     ))
-                    fig_dist.update_layout(
-                        title="Distribución de Probabilidad de Fuga",
-                        xaxis_title="Probabilidad de Atrición",
-                        yaxis_title="Cantidad de Empleados",
-                        bargap=0.05
+                    fig_hist.update_layout(
+                        title="Distribución de Probabilidades",
+                        xaxis_title="Probabilidad de Attrition",
+                        yaxis_title="Cantidad"
                     )
-                    st.plotly_chart(fig_dist, use_container_width=True)
-                    
-                with col_chart2:
-                    pred_counts = pd.Series(preds).value_counts()
-                    fig_pie = go.Figure(data=[go.Pie(
-                        labels=["Permanencia (0)", "Riesgo de Fuga (1)"],
-                        values=[pred_counts.get(0, 0), pred_counts.get(1, 0)],
-                        hole=.4,
-                        marker_colors=['#4CAF50', '#FF4B4B']
-                    )])
-                    fig_pie.update_layout(title="Proporción de Empleados Predichos en Riesgo")
+                    st.plotly_chart(fig_hist, use_container_width=True)
+
+                with c2:
+                    pred_counts = df_result["Predicción"].value_counts()
+
+                    fig_pie = go.Figure(data=[
+                        go.Pie(
+                            labels=["No riesgo (0)", "Riesgo (1)"],
+                            values=[pred_counts.get(0, 0), pred_counts.get(1, 0)],
+                            hole=0.4
+                        )
+                    ])
+                    fig_pie.update_layout(title="Proporción de Predicciones")
                     st.plotly_chart(fig_pie, use_container_width=True)
 
             with tab2:
-                if y_true is not None:
-                    col_m1, col_m2 = st.columns(2)
+                c1, c2 = st.columns(2)
 
-                    with col_m1:
+                with c1:
+                    fig_bv = go.Figure()
+                    fig_bv.add_trace(go.Histogram(
+                        x=df_result["Business_Value"],
+                        nbinsx=20
+                    ))
+                    fig_bv.update_layout(
+                        title="Distribución de Business Value Esperado",
+                        xaxis_title="Business Value por empleado",
+                        yaxis_title="Cantidad"
+                    )
+                    st.plotly_chart(fig_bv, use_container_width=True)
+
+                with c2:
+                    action_counts = df_result["Acción_Recomendada"].value_counts()
+
+                    fig_action = go.Figure(data=[
+                        go.Pie(
+                            labels=action_counts.index,
+                            values=action_counts.values,
+                            hole=0.4
+                        )
+                    ])
+                    fig_action.update_layout(title="Acciones recomendadas")
+                    st.plotly_chart(fig_action, use_container_width=True)
+
+            with tab3:
+                st.markdown("### Velocímetro de Business Value promedio")
+
+                fig_gauge = crear_velocimetro(
+                    value=avg_value,
+                    vmin=GAUGE_MIN,
+                    vmax=GAUGE_MAX,
+                    title="Business Value Promedio por Empleado"
+                )
+
+                st.plotly_chart(fig_gauge, use_container_width=True)
+
+                st.info(
+                    f"Business Value promedio: USD {avg_value:,.2f}. "
+                    f"Business Value total: USD {total_value:,.2f}."
+                )
+
+            with tab4:
+                if y_true is not None:
+                    preds = df_result["Predicción"]
+                    preds_proba = df_result["Probabilidad"]
+
+                    c1, c2 = st.columns(2)
+
+                    with c1:
                         cm = confusion_matrix(y_true, preds)
-                        z = cm.tolist()
-                        x_labels = ["Pred 0 (No Fuga)", "Pred 1 (Fuga)"]
-                        y_labels = ["Real 0 (No Fuga)", "Real 1 (Fuga)"]
 
                         fig_cm = ff.create_annotated_heatmap(
-                            z,
-                            x=x_labels,
-                            y=y_labels,
+                            cm.tolist(),
+                            x=["Pred 0", "Pred 1"],
+                            y=["Real 0", "Real 1"],
                             colorscale="Reds",
                             showscale=True
                         )
@@ -246,13 +415,13 @@ if uploaded:
                         fig_cm.update_layout(
                             title_text="Matriz de Confusión",
                             xaxis_title="Predicción",
-                            yaxis_title="Valor Real"
+                            yaxis_title="Real"
                         )
 
                         fig_cm["layout"]["yaxis"]["autorange"] = "reversed"
                         st.plotly_chart(fig_cm, use_container_width=True)
 
-                    with col_m2:
+                    with c2:
                         fpr, tpr, thresholds = roc_curve(y_true, preds_proba)
                         roc_auc = auc(fpr, tpr)
 
@@ -261,36 +430,28 @@ if uploaded:
                         fig_roc.add_trace(go.Scatter(
                             x=fpr,
                             y=tpr,
-                            name=f"ROC curve (AUC = {roc_auc:.4f})",
                             mode="lines",
-                            line=dict(color="#FF4B4B", width=3),
-                            hovertemplate="FPR: %{x:.2f}<br>TPR: %{y:.2f}<br>Threshold: %{text:.2f}",
-                            text=thresholds
+                            name=f"ROC AUC = {roc_auc:.4f}"
                         ))
 
                         fig_roc.add_trace(go.Scatter(
                             x=[0, 1],
                             y=[0, 1],
-                            name="Aleatorio (AUC = 0.5)",
                             mode="lines",
-                            line=dict(color="gray", width=2, dash="dash")
+                            name="Random",
+                            line=dict(dash="dash")
                         ))
 
                         fig_roc.update_layout(
-                            title="Curva ROC de Validación",
-                            xaxis_title="Tasa de Falsos Positivos (FPR)",
-                            yaxis_title="Tasa de Verdaderos Positivos (TPR)",
-                            xaxis=dict(range=[0, 1]),
-                            yaxis=dict(range=[0, 1.05]),
-                            hovermode="x unified"
+                            title="Curva ROC",
+                            xaxis_title="FPR",
+                            yaxis_title="TPR"
                         )
 
                         st.plotly_chart(fig_roc, use_container_width=True)
-                else:
-                    st.warning("La columna objetivo 'attrition' no está presente en el archivo CSV subido para calcular la matriz de confusión y la curva ROC.")
 
-        except Exception as e:
-            st.error(f"Error procesando las predicciones masivas de la API: {e}")
+                else:
+                    st.warning("No se encontró columna 'attrition'. No se puede calcular evaluación contra target.")
 
 else:
-    st.info("Por favor, sube un archivo CSV estructurado con las características del empleado para iniciar.")
+    st.info("Sube un archivo CSV para iniciar la predicción.")
